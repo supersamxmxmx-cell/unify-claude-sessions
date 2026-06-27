@@ -1,3 +1,4 @@
 # 本地备份数据（含个人 session 信息，不提交）
 backups/
 *.bak
+.gw_snapshot/

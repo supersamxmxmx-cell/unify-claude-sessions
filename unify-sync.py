@@ -393,6 +393,16 @@ def cmd_on() -> None:
             log_warn(f"指向其他位置: {target}")
             log_warn("如需重新指向官方目录，请先执行 'off' 再 'on'")
     else:
+        # on 之前先保存 Gateway 的 session 快照（用于 off 恢复）
+        GW_SNAPSHOT = SCRIPT_DIR / ".gw_snapshot"
+        if GW_SNAPSHOT.is_dir():
+            shutil.rmtree(str(GW_SNAPSHOT))
+        GW_SNAPSHOT.mkdir()
+        for f in gw_session.iterdir():
+            if f.suffix == ".json":
+                shutil.copy2(f, GW_SNAPSHOT / f.name)
+        log_info(f"Gateway session 快照已保存 ({count_sessions(GW_SNAPSHOT)} 个)")
+
         # 把 Gateway 独有的 session 复制到官方目录
         off_files = {f.name for f in off_session.iterdir() if f.suffix == ".json"}
         migrated = 0
@@ -452,7 +462,16 @@ def cmd_off() -> None:
         log_info("移除 session 软链接 ...")
         gw_session.unlink()
         gw_session.mkdir(parents=True, exist_ok=True)
-        log_info("已创建空 session 目录，Gateway 只可见自己的 session")
+
+        # 从快照恢复 Gateway 原始 session
+        GW_SNAPSHOT = SCRIPT_DIR / ".gw_snapshot"
+        if GW_SNAPSHOT.is_dir() and count_sessions(GW_SNAPSHOT) > 0:
+            for f in GW_SNAPSHOT.iterdir():
+                if f.suffix == ".json":
+                    shutil.copy2(f, gw_session / f.name)
+            log_info(f"从快照恢复 Gateway session ({count_sessions(gw_session)} 个)")
+        else:
+            log_warn("未找到快照，Gateway session 目录为空（重启后只显示自己新建的）")
 
     print()
     log_info(f"{color('green', '✅ 已恢复独立状态')}")
