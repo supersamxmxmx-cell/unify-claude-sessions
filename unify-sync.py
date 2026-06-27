@@ -458,20 +458,46 @@ def cmd_off() -> None:
         log_info("Gateway config 软链接已移除，重启 app 会自动重建")
 
     # 2. 恢复 session 目录
+    GW_SNAPSHOT = SCRIPT_DIR / ".gw_snapshot"
     if gw_session and gw_session.is_symlink():
+        # 记录快照里有哪些文件（off 后要从官方目录删掉的）
+        gw_snapshot_files = set()
+        if GW_SNAPSHOT.is_dir():
+            gw_snapshot_files = {f.name for f in GW_SNAPSHOT.iterdir() if f.suffix == ".json"}
+
+        # 找出 on 时迁移到官方目录的 Gateway session（快照里没有、但在官方目录里的）
+        off_session = find_session_dir(OFFICIAL)
+        migrated_to_official = set()
+        if off_session:
+            off_files = {f.name for f in off_session.iterdir() if f.suffix == ".json"}
+            # 统一前官方没有的、快照里也有的 = 迁移来的
+            migrated_to_official = gw_snapshot_files & off_files
+
         log_info("移除 session 软链接 ...")
         gw_session.unlink()
         gw_session.mkdir(parents=True, exist_ok=True)
 
         # 从快照恢复 Gateway 原始 session
-        GW_SNAPSHOT = SCRIPT_DIR / ".gw_snapshot"
         if GW_SNAPSHOT.is_dir() and count_sessions(GW_SNAPSHOT) > 0:
             for f in GW_SNAPSHOT.iterdir():
                 if f.suffix == ".json":
                     shutil.copy2(f, gw_session / f.name)
             log_info(f"从快照恢复 Gateway session ({count_sessions(gw_session)} 个)")
         else:
-            log_warn("未找到快照，Gateway session 目录为空（重启后只显示自己新建的）")
+            log_warn("未找到快照，Gateway session 目录为空")
+
+        # 从官方目录删除当时迁移过去的 Gateway session
+        if off_session and migrated_to_official:
+            removed = 0
+            for fname in migrated_to_official:
+                f = off_session / fname
+                if f.exists():
+                    f.unlink()
+                    removed += 1
+            if removed:
+                log_info(f"从官方目录清除迁移的 Gateway session ({removed} 个)")
+        else:
+            log_info("官方目录无需清除")
 
     print()
     log_info(f"{color('green', '✅ 已恢复独立状态')}")
