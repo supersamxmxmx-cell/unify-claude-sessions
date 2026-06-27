@@ -81,18 +81,24 @@ python3 unify-sync.py on
 ### `on` 做了什么
 
 1. **备份** — 把当前官方和 Gateway 的所有 session 备份到 `backups/<时间戳>/`
-2. **快照** — 把 Gateway 当前的 session 目录存为 `.gw_snapshot/`（`off` 时用于恢复）
-3. **迁移** — 把 Gateway 独有的 session 文件复制到官方目录（让官方也能看到）
-4. **symlink** — 删除 Gateway 的 session 目录，创建软链接指向官方目录
+2. **快照** — 把 Gateway 当前的 session 保存到 `.gw_snapshot/`（`off` 时用于恢复）
+3. **迁移** — 把 Gateway 独有的 session 文件**复制到官方目录**（让官方 Claude 也能看到这些 session）
+4. **symlink** — 删除 Gateway 的 session 目录，创建软链接指向官方目录（Gateway 从此通过 symlink 读到官方的所有 session）
 5. **合并 config** — 深度合并 `claude_desktop_config.json`，两个 account UUID 的收藏/分组等配置共存
 
 ### `off` 做了什么
 
 1. **删 symlink** — 移除 Gateway session 目录的软链接
-2. **恢复快照** — 把 `.gw_snapshot/` 的内容还原到 Gateway 的独立 session 目录
-3. **移除 config 软链接** — Gateway 重启后会自动重建自己的配置
+2. **恢复快照** — 把 `.gw_snapshot/` 的内容还原到 Gateway 的独立 session 目录（Gateway 回到自己的 session）
+3. **清理官方目录** — 把 `on` 时从 Gateway 迁移到官方的 session 文件从官方目录删除（官方恢复干净状态）
+4. **移除 config 软链接** — Gateway 重启后会自动重建自己的配置
 
-两步操作，Gateway 完全回到独立状态。
+`on` / `off` 完全对称，两边各自保持干净：
+
+| 状态 | 官方 Claude 看到 | Gateway 看到 |
+|---|---|---|
+| **off（独立）** | 只有官方自己的 session | 只有 Gateway 自己的 session |
+| **on（统一）** | 官方 + Gateway 的 session | 官方 + Gateway 的 session（通过 symlink）|
 
 ## 注意事项
 
@@ -100,13 +106,15 @@ python3 unify-sync.py on
 
 Session 列表的分组方式两个 app 可能不一致。建议两边都切换成**按项目目录分组**：在 session 列表 UI 找分组切换图标，选 **Group by directory**。
 
-### 哪些 session 在 `off` 后会消失
+### 统一期间新建的 session 去哪了
 
-`off` 之后，Gateway 恢复的是 `on` **之前**的快照状态。如果在统一期间（`on` 状态下）用 Gateway 新建了 session，这些 session 的文件实际存在**官方目录**里。`off` 之后：
-- **官方 Claude** 仍然可以看到它们 ✅
-- **Gateway** 看不到（因为 Gateway 恢复到了 `on` 之前的快照）
+统一状态（`on`）下，两个 app 创建的 session 都写入**官方目录**（因为 Gateway 的目录是指向官方的 symlink）。
 
-如需让 Gateway 也保留这些 session，重新执行一次 `on` 即可。
+`off` 之后：
+- Gateway 恢复到 `on` 之前的**快照**状态，所以统一期间新建的 session 在 Gateway 里**看不到**
+- 但这些 session 文件仍然在**官方目录**，官方 Claude 可以看到 ✅
+
+如需让 Gateway 也包含这些 session，重新执行一次 `on` 即可（新的快照会包含它们）。
 
 ## 目录结构
 
