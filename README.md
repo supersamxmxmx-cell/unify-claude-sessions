@@ -126,6 +126,7 @@ MIT
 ## 作者
 
 supersam — 2026-06-27
+GitHub: [supersamxmxmx-cell/unify-claude-sessions](https://github.com/supersamxmxmx-cell/unify-claude-sessions)
 
 ---
 

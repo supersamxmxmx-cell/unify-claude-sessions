@@ -16,7 +16,7 @@ unify-sync — Claude Desktop Session 统一工具
     本工具通过符号链接 + 配置合并，让两边指向同一份 Session 数据。
 
 作者: supersam | 日期: 2026-06-27
-项目: https://github.com/supersam-dev/unify-claude-sessions
+项目: https://github.com/supersamxmxmx-cell/unify-claude-sessions
 """
 
 import json
