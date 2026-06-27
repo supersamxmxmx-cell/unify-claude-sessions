@@ -6,7 +6,7 @@
 
 ## 问题
 
-使用 Gateway (ccswitch 等) 连接 Claude Desktop 时，3p 版本会创建独立的 profile 目录 (`Claude-3p/`)，导致：
+使用 Gateway（ccswitch 等）连接 Claude Desktop 时，3p 版本会创建独立的 profile 目录（`Claude-3p/`），导致：
 
 - Session 列表为空（看不到之前在官方版的历史会话）
 - 收藏、分组、项目权限各自独立
@@ -14,115 +14,134 @@
 
 但实际上，**底层数据完全兼容**——只是物理上分成了两个目录。
 
-## 解决
+## 解决思路
 
-通过**安全备份 + 深度合并 + 符号链接**，让两个 app 的数据目录指向同一物理位置：
+两个 app 的 session 数据天然存储在不同位置：
 
 ```
-官方 Claude                     Gateway Claude
-     │                               │
-     │  同 ~/.claude/ (记忆/skill) ← 本就共享
-     │                               │
-     ├─ Session JSON ────symlink────┤  ← 本工具统一
-     ├─ Config JSON ────symlink────┤  ← 本工具统一
+官方 Claude:  ~/Library/Application Support/Claude/claude-code-sessions/
+Gateway:      ~/Library/Application Support/Claude-3p/claude-code-sessions/
+```
+
+本工具的做法：
+
+1. **把 Gateway 的 session 目录替换成一个指向官方目录的符号链接（symlink）**
+   - Gateway 读 session 时，跟随 symlink，实际读的是官方目录的文件
+   - 两边从此看到同一批 session
+
+2. **开启前，把 Gateway 独有的 session 文件复制到官方目录**
+   - 这样官方 Claude 也能看到 Gateway 之前创建的 session
+
+3. **关闭时，删除 symlink，从快照恢复 Gateway 的原始目录**
+   - Gateway 的 session 文件在 `on` 前已保存快照，`off` 时完整恢复
+
+```
+on 之后的文件结构：
+
+官方目录（真实目录）
+  ├── local_xxx.json   ← 官方原有的 session
+  ├── local_yyy.json   ← 官方原有的 session
+  └── local_zzz.json   ← 从 Gateway 复制过来的 session
+
+Gateway 目录（symlink）──→ 指向官方目录
+  （Gateway 读到的就是上面这 3 个文件）
 ```
 
 **效果**：
+- 两边看到完全相同的 session 列表
 - 任意一个 app 创建的新会话，另一个立刻可见
-- 收藏/分组/Pin 实时同步
-- 随时可逆（一键恢复独立状态）
+- 随时可逆（`off` 一键恢复独立状态）
 
 ## 快速开始
 
 ```bash
-# 1. 查看当前状态
+# 下载（一行）
+curl -O https://raw.githubusercontent.com/supersamxmxmx-cell/unify-claude-sessions/main/unify-sync.py
+
+# 查看当前状态
 python3 unify-sync.py status
 
-# 2. 安全备份（无修改，建议先做）
-python3 unify-sync.py backup
-
-# 3. 开启统一
+# 开启统一
 python3 unify-sync.py on
 
-# 4. 重启两个 Claude Desktop → 生效！
+# 重启两个 Claude Desktop → 生效！
 ```
 
 ## 命令
 
-| 命令 | 作用 | 是否可逆 |
+| 命令 | 作用 | 可逆 |
 |---|---|---|
 | `python3 unify-sync.py status` | 查看当前统一状态 | - |
 | `python3 unify-sync.py backup` | 仅备份所有数据（不修改） | - |
 | `python3 unify-sync.py on` | 开启统一 | ✅ 随时 off |
 | `python3 unify-sync.py off` | 关闭统一，恢复独立 | ✅ 完全恢复 |
-| `python3 unify-sync.py merge` | 仅合并配置（不创建软链接） | - |
 
-## 💡 分组统一
+## 原理详解
 
-Session 列表默认展示方式两个 app 可能不同。建议两边都设置成**按项目目录分组**：
+### `on` 做了什么
 
-在 session 列表 UI 的右上角或左上角找一个比较隐蔽的**分组切换图标**——点一下选 **Group by directory**。这样两边 session 列表的结构完全一致。
+1. **备份** — 把当前官方和 Gateway 的所有 session 备份到 `backups/<时间戳>/`
+2. **快照** — 把 Gateway 当前的 session 目录存为 `.gw_snapshot/`（`off` 时用于恢复）
+3. **迁移** — 把 Gateway 独有的 session 文件复制到官方目录（让官方也能看到）
+4. **symlink** — 删除 Gateway 的 session 目录，创建软链接指向官方目录
+5. **合并 config** — 深度合并 `claude_desktop_config.json`，两个 account UUID 的收藏/分组等配置共存
 
-## 原理
+### `off` 做了什么
 
-### on — 做了什么
+1. **删 symlink** — 移除 Gateway session 目录的软链接
+2. **恢复快照** — 把 `.gw_snapshot/` 的内容还原到 Gateway 的独立 session 目录
+3. **移除 config 软链接** — Gateway 重启后会自动重建自己的配置
 
-1. **安全备份** — 每次操作前自动备份原始文件到 `backups/` 目录
-2. **配置合并** — 深度合并 `claude_desktop_config.json`，两个 account UUID 的配置共存
-3. **Session 合并** — Gateway 独有的 session 文件迁移到官方目录
-4. **符号链接** — Gateway 的 session 目录指向官方目录
-5. **.bak 保留** — Gateway 原始 session 目录保留为 `xxx.bak`，用于撤销
+两步操作，Gateway 完全回到独立状态。
 
-### off — 恢复
+## 注意事项
 
-1. 移除符号链接
-2. 从 `.bak` 恢复原始 session 目录
-3. 从备份恢复原始 config
-4. 两边完全回到独立状态
+### 分组显示
+
+Session 列表的分组方式两个 app 可能不一致。建议两边都切换成**按项目目录分组**：在 session 列表 UI 找分组切换图标，选 **Group by directory**。
+
+### 哪些 session 在 `off` 后会消失
+
+`off` 之后，Gateway 恢复的是 `on` **之前**的快照状态。如果在统一期间（`on` 状态下）用 Gateway 新建了 session，这些 session 的文件实际存在**官方目录**里。`off` 之后：
+- **官方 Claude** 仍然可以看到它们 ✅
+- **Gateway** 看不到（因为 Gateway 恢复到了 `on` 之前的快照）
+
+如需让 Gateway 也保留这些 session，重新执行一次 `on` 即可。
 
 ## 目录结构
 
 ```
-~/
-├── .claude/                          ← 本就共享（记忆/skill/settings）
-│   ├── CLAUDE.md
-│   ├── projects/
-│   ├── skills/
-│   └── settings.json
+~/Library/Application Support/
+├── Claude/                           ← 官方版（真实目录）
+│   ├── claude_desktop_config.json    ← 合并后包含两个 account UUID
+│   └── claude-code-sessions/
+│       └── be5c9dd2-.../
+│           └── 318824e3-.../         ← 所有 session JSON（含从 Gateway 迁移的）
 │
-├── Library/Application Support/
-│   ├── Claude/                       ← 官方版
-│   │   ├── claude_desktop_config.json    ← 配置（合并后包含两个 UUID）
-│   │   └── claude-code-sessions/         ← Session 总目录
-│   │       └── be5c9dd2-.../             ← 官方 account
-│   │           └── 318824e3-.../        ← 所有 session JSON
-│   │
-│   └── Claude-3p/                    ← Gateway 版
-│       ├── claude_desktop_config.json → [symlink → Claude/...]
-│       └── claude-code-sessions/
-│           └── fbf8cc10-.../         ← Gateway account
-│               ├── 00000000-.../      → [symlink → Claude/.../318824e3-.../]
-│               └── 00000000-....bak/ ← 原始备份（用于撤销）
-│
-└── Documents/claude desktop对话同步/  ← 本项目
-    ├── unify-sync.py                 ← 主 CLI
-    ├── backups/                      ← 操作历史备份
-    ├── lib/                          ← 预留
-    └── README.md
+└── Claude-3p/                        ← Gateway 版
+    ├── claude_desktop_config.json    → [symlink → 官方 config]（on 状态）
+    └── claude-code-sessions/
+        └── fbf8cc10-.../
+            └── 00000000.../          → [symlink → 官方 session 目录]（on 状态）
+
+~/Documents/claude desktop对话同步/   ← 本项目
+├── unify-sync.py                     ← 主 CLI
+├── .gw_snapshot/                     ← Gateway session 快照（off 恢复用，不提交）
+├── backups/                          ← 历史备份（不提交）
+└── README.md
 ```
 
 ## 安全保证
 
-- ✅ **每次操作前自动备份** — 原始数据永不丢失
-- ✅ **Session .bak 目录** — Gateway 原始 session 完整保留
-- ✅ **可逆开关** — `off` 命令完全恢复独立状态
-- ✅ **只读采集** — 只在合并阶段复制文件，不修改原始 session JSON
-- ✅ **无网络操作** — 纯本地文件操作，不联网
-- ✅ **幂等** — 重复执行 `on`/`off` 不会损坏数据
+- ✅ **每次 `on` 自动备份** — 原始数据存入 `backups/<时间戳>/`，永不丢失
+- ✅ **快照保护** — `on` 前保存 Gateway session 快照，`off` 完整恢复
+- ✅ **可逆开关** — `off` 完全恢复独立状态
+- ✅ **官方目录安全** — `off` 不删除官方目录的任何文件
+- ✅ **无网络操作** — 纯本地文件操作
 
 ## 依赖
 
-- Python 3.6+（macOS 内置）
+- Python 3.6+（macOS 内置，无需安装）
 - 零外部依赖
 
 ## 许可
@@ -138,14 +157,14 @@ GitHub: [supersamxmxmx-cell/unify-claude-sessions](https://github.com/supersamxm
 
 ## 附录：也可集成到 ccswitch
 
-ccswitch 已有 `unifyCodexSessionHistory` 开关。本工具的思路可以做成 ccswitch 的一个 migration：
+ccswitch 已有 `unifyCodexSessionHistory` 开关（针对 Codex）。本工具的思路可以做成 ccswitch 针对 Claude Desktop 3p 的同类功能：
 
 ```json
 {
   "localMigrations": {
     "claudeDesktop3pProfileUnifyV1": {
       "completedAt": "2026-06-27T...",
-      "unifiedSessions": 41
+      "unifiedSessions": 42
     }
   },
   "unifyClaudeDesktop3pProfiles": true
