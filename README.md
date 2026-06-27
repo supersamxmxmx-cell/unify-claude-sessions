@@ -57,6 +57,12 @@ python3 unify-sync.py on
 | `python3 unify-sync.py off` | 关闭统一，恢复独立 | ✅ 完全恢复 |
 | `python3 unify-sync.py merge` | 仅合并配置（不创建软链接） | - |
 
+## 💡 分组统一
+
+Session 列表默认展示方式两个 app 可能不同。建议两边都设置成**按项目目录分组**：
+
+在 session 列表 UI 的右上角或左上角找一个比较隐蔽的**分组切换图标**——点一下选 **Group by directory**。这样两边 session 列表的结构完全一致。
+
 ## 原理
 
 ### on — 做了什么
