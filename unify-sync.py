@@ -173,13 +173,6 @@ def cmd_status() -> None:
     print()
     print(color("bold", "── 备份 ──"))
 
-    bak = find_backup_dir(gw_session) if gw_session else None
-    if bak:
-        bak_count = count_sessions(bak)
-        print(f"  Session .bak: {color('green', '存在')} ({bak_count} 个文件)")
-    else:
-        print(f"  Session .bak: {color('yellow', '不存在')}")
-
     history_count = 0
     if BACKUPS_DIR.is_dir():
         history_count = len(
@@ -400,7 +393,7 @@ def cmd_on() -> None:
             log_warn(f"指向其他位置: {target}")
             log_warn("如需重新指向官方目录，请先执行 'off' 再 'on'")
     else:
-        # 迁移 Gateway 独有的 session
+        # 把 Gateway 独有的 session 复制到官方目录
         off_files = {f.name for f in off_session.iterdir() if f.suffix == ".json"}
         migrated = 0
         for f in gw_session.iterdir():
@@ -414,16 +407,8 @@ def cmd_on() -> None:
         else:
             log_info("无 Gateway 独有 session 需要迁移")
 
-        # 备份 → 软链接
-        gw_bak = gw_session.parent / (gw_session.name + ".bak")
-
-        if not gw_bak.is_dir():
-            shutil.move(str(gw_session), str(gw_bak))
-            log_info(f"Gateway 原始 session 备份到: {gw_bak}")
-        else:
-            shutil.rmtree(str(gw_session))
-            log_info("原始 session 目录已移除（.bak 已存在）")
-
+        # 删除原目录，创建软链接
+        shutil.rmtree(str(gw_session))
         os.symlink(str(off_session), str(gw_session))
         log_info(f"Session 软链接: Gateway → 官方 {color('green', '✓')}")
 
@@ -456,55 +441,18 @@ def cmd_off() -> None:
 
     log_step("正在关闭统一，恢复独立状态 ...")
 
-    # 1. 恢复 config
+    # 1. 恢复 config（移除软链接，app 重启会重建）
     if gw_config.is_symlink():
         log_info("移除 config 软链接 ...")
         gw_config.unlink()
+        log_info("Gateway config 软链接已移除，重启 app 会自动重建")
 
-        # 查找备份
-        backup_file = find_config_backup(GATEWAY)
-        if not backup_file:
-            # 回退到脚本备份目录
-            if BACKUPS_DIR.is_dir():
-                for d in sorted(BACKUPS_DIR.iterdir(), reverse=True):
-                    candidate = d / "Claude-3p-claude_desktop_config.json"
-                    if candidate.is_file():
-                        backup_file = candidate
-                        break
-
-        if backup_file:
-            shutil.copy2(backup_file, gw_config)
-            log_info(f"从备份恢复: {backup_file}")
-        else:
-            log_warn("未找到 Gateway config 备份，创建空配置（app 重启后会自动生成）")
-            gw_config.write_text("{}")
-    else:
-        log_info("Config 不是软链接，无需恢复")
-
-    # 2. 恢复 session
-    gw_session_obj = find_session_dir(GATEWAY)
-    if gw_session_obj and gw_session_obj.is_symlink():
+    # 2. 恢复 session 目录
+    if gw_session and gw_session.is_symlink():
         log_info("移除 session 软链接 ...")
-        gw_parent = gw_session_obj.parent
-        gw_name = gw_session_obj.name
-        gw_bak = gw_parent / (gw_name + ".bak")
-
-        gw_session_obj.unlink()
-
-        if gw_bak.is_dir():
-            shutil.copytree(
-                str(gw_bak),
-                str(gw_session_obj),
-                dirs_exist_ok=True,
-                symlinks=True,
-            )
-            log_info("从 .bak 恢复原始 session 目录")
-            log_info(f".bak 备份保留在: {gw_bak}")
-        else:
-            gw_session_obj.mkdir(parents=True, exist_ok=True)
-            log_warn("未找到 .bak 备份，已创建空 session 目录")
-    else:
-        log_info("Session 目录不是软链接，无需恢复")
+        gw_session.unlink()
+        gw_session.mkdir(parents=True, exist_ok=True)
+        log_info("已创建空 session 目录，Gateway 只可见自己的 session")
 
     print()
     log_info(f"{color('green', '✅ 已恢复独立状态')}")
